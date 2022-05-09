@@ -106,7 +106,7 @@ contract CryptoTodo {
     /// @return Task data
     /// @return IDs of tasks
     /// @return Bool array is each task expired
-    function personTasks(bool _withExpired, bool _withRemoved)
+    function personalTasks(bool _withExpired, bool _withRemoved)
         external
         view
         returns (

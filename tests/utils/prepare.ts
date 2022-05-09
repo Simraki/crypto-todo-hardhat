@@ -26,3 +26,11 @@ export async function prepareERC20Tokens(thisObject: Mocha.Context, signer: Sign
     await token3.deployed()
     thisObject.token3 = token3
 }
+
+export async function prepareCryptoTodo(thisObject: Mocha.Context, signer: SignerWithAddress) {
+    const tokenFactory = await ethers.getContractFactory("CryptoTodo")
+
+    const CryptoTodo = await tokenFactory.connect(signer).deploy()
+    await CryptoTodo.deployed()
+    thisObject.CryptoTodo = CryptoTodo
+}

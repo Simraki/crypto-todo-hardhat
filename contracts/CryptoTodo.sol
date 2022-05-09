@@ -150,9 +150,9 @@ contract CryptoTodo {
         return (ts, ids, isExpiredArr);
     }
 
-    /// @notice Get all tasks completed on time for each owner
+    /// @notice Get percentage of on-time completed tasks for each owner
     /// @return Address array with each owner
-    /// @return Percentage array of tasks completed on time for each owner
+    /// @return Percentage array of on-time completed tasks for each owner
     function onTimeTaskPercents() external view returns (address[] memory, uint256[] memory) {
         address[] memory tOwners = new address[](totalTasks);
         uint256 counter = 0;

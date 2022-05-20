@@ -3,6 +3,7 @@ import { waffle } from "hardhat"
 import { revert, snapshot } from "./utils/network"
 import { prepareSigners, prepareTicTacToe } from "./utils/prepare"
 import { ZERO_ADDRESS } from "./utils/constants"
+import { duration, increase } from "./utils/time"
 
 use(waffle.solidity)
 
@@ -29,7 +30,7 @@ describe("TicTacToe contract", function () {
             expect(game.p1).to.equal(ZERO_ADDRESS)
             expect(game.p2).to.equal(ZERO_ADDRESS)
             expect(game.createdAt).to.not.equal(0)
-            expect(game.timestamp).to.equal(0)
+            expect(game.turnAt).to.equal(0)
             expect(game.phase).to.equal(0)
             expect(game.state).to.equal(0)
             expect(game.board).to.deep.equal([
@@ -47,7 +48,7 @@ describe("TicTacToe contract", function () {
             expect(game.p1).to.equal(this.misha.address)
             expect(game.p2).to.equal(ZERO_ADDRESS)
             expect(game.createdAt).to.not.equal(0)
-            expect(game.timestamp).to.equal(0)
+            expect(game.turnAt).to.equal(0)
             expect(game.phase).to.equal(0)
             expect(game.state).to.equal(0)
             expect(game.board).to.deep.equal([
@@ -112,6 +113,19 @@ describe("TicTacToe contract", function () {
             await this.TTT.connect(this.bob).move(1, 0, 1)
             await this.TTT.connect(this.misha).move(1, 1, 0)
             await this.TTT.connect(this.bob).move(1, 1, 1)
+
+            await expect(this.TTT.connect(this.misha).move(1, 2, 0)).to.emit(this.TTT, "GameOver").withArgs(1, 2)
+
+            const game = await this.TTT.gameById(1)
+            expect(game.phase).to.equal(3)
+            expect(game.state).to.equal(2)
+        })
+
+        it("should win game after turn timeout has expired", async function () {
+            await this.TTT.connect(this.misha).move(1, 0, 0)
+
+            // Time jump
+            await increase(duration.days("2"))
 
             await expect(this.TTT.connect(this.misha).move(1, 2, 0)).to.emit(this.TTT, "GameOver").withArgs(1, 2)
 

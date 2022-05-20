@@ -27,7 +27,7 @@ contract TicTacToe {
         address p1;
         address p2;
         uint256 createdAt;
-        uint256 timestamp;
+        uint256 turnAt;
         Phase phase;
         State state;
         Players[3][3] board;
@@ -43,7 +43,7 @@ contract TicTacToe {
     mapping(address => Stats) private playerStats;
 
     uint256 private totalGames;
-    uint256 timeout = 1 days;
+    uint256 turnTimeout = 1 days;
 
     event GameCreated(uint256 indexed gameId, address indexed creator);
     event PlayerJoinedGame(uint256 indexed gameId, address player, uint8 playerNum);
@@ -61,12 +61,6 @@ contract TicTacToe {
         Game storage game = games[_id];
         require(game.phase != Phase.Join, "TicTacToe: game has not started yet");
         require(game.phase != Phase.Finished, "TicTacToe: game has already been finished");
-        _;
-    }
-
-    modifier onlyPlayerInTurn(uint256 _id) {
-        Game storage game = games[_id];
-        require(msg.sender == getCurrentPlayer(game), "TicTacToe: there is not your turn");
         _;
     }
 
@@ -119,6 +113,9 @@ contract TicTacToe {
             game.p2 = player;
             game.phase = Phase.P1Turn;
             game.state = State.Active;
+
+            game.turnAt = block.timestamp + turnTimeout;
+
             emit PlayerJoinedGame(_id, player, 2);
         }
     }
@@ -131,14 +128,29 @@ contract TicTacToe {
         uint256 _id,
         uint8 _x,
         uint8 _y
-    ) external exists(_id) onlyActiveGame(_id) onlyPlayerInTurn(_id) {
+    ) external exists(_id) onlyActiveGame(_id) {
         require(_x < 3 && _y < 3, "TicTacToe: coordinates off the board");
 
         Game storage game = games[_id];
 
+        if (game.turnAt < block.timestamp) {
+            if (game.phase == Phase.P1Turn) {
+                game.state = State.P2Wins;
+                playerStats[game.p2].winNum++;
+            } else {
+                game.state = State.P1Wins;
+                playerStats[game.p1].winNum++;
+            }
+            game.phase = Phase.Finished;
+            emit GameOver(_id, game.state);
+            return;
+        }
+
+        require(msg.sender == getCurrentPlayer(game), "TicTacToe: there is not your turn");
         require(game.board[_x][_y] == Players.None, "TicTacToe: cell on the board is already taken");
 
         game.board[_x][_y] = game.phase == Phase.P1Turn ? Players.P1 : Players.P2;
+        game.turnAt = block.timestamp + turnTimeout;
         emit PlayerMove(_id, msg.sender, _x, _y);
 
         Players winner;

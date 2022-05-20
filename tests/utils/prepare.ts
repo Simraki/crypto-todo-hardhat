@@ -34,3 +34,11 @@ export async function prepareCryptoTodo(thisObject: Mocha.Context, signer: Signe
     await CryptoTodo.deployed()
     thisObject.CryptoTodo = CryptoTodo
 }
+
+export async function prepareTicTacToe(thisObject: Mocha.Context, signer: SignerWithAddress) {
+    const tokenFactory = await ethers.getContractFactory("TicTacToe")
+
+    const TicTacToe = await tokenFactory.connect(signer).deploy()
+    await TicTacToe.deployed()
+    thisObject.TTT = TicTacToe
+}

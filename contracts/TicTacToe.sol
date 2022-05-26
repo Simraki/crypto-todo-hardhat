@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+
+import "./MultiSigWallet.sol";
+
 /// @author YeapCool
-/// @title A Solidity implementation of Tic-Tac-Toe game (Xs and Os)
-contract TicTacToe {
+/// @title A Solidity implementation of Tic-Tac-Toe game (Xs and Os) with stakes
+contract TicTacToe is Ownable, ReentrancyGuard {
+    using SafeMath for uint256;
+
     enum Players {
         None,
         P1,
-        P2
+        P2,
+        Both
     }
     enum Phase {
         Join,
@@ -15,22 +25,19 @@ contract TicTacToe {
         P2Turn,
         Finished
     }
-    enum State {
-        None,
-        Active,
-        P1Wins,
-        P2Wins,
-        Draw
-    }
 
     struct Game {
-        address p1;
-        address p2;
+        address payable p1;
+        address payable p2;
         uint256 createdAt;
         uint256 turnAt;
         Phase phase;
-        State state;
+        Players winner;
         Players[3][3] board;
+        // If it is zero, use ETH
+        address tokenAddress;
+        uint256 amount;
+        uint256 stake;
     }
 
     struct Stats {
@@ -39,18 +46,38 @@ contract TicTacToe {
         uint256 winNum;
     }
 
+    uint256 decimals = 18;
+
     mapping(uint256 => Game) private games;
     mapping(address => Stats) private playerStats;
 
     uint256 private totalGames;
     uint256 turnTimeout = 1 days;
 
-    event GameCreated(uint256 indexed gameId, address indexed creator);
+    uint256 fee;
+    bool isAbsFee;
+
+    MultiSigWallet wallet;
+
+    event GameCreated(uint256 indexed gameId, address indexed creator, uint256 amount, address token);
     event PlayerJoinedGame(uint256 indexed gameId, address player, uint8 playerNum);
     event PlayerMove(uint256 indexed gameId, address player, uint8 x, uint8 y);
-    event GameOver(uint256 indexed gameId, State indexed state);
+    event GameOver(uint256 indexed gameId, Players indexed winner);
 
-    constructor() {}
+    event FeeChanged(uint256 fee, bool isAbsFee);
+    event WalletChanged(address wallet);
+
+    constructor(
+        uint256 _fee,
+        bool _isAbsFee,
+        address payable _walletAddress
+    ) {
+        require(!_isAbsFee && _fee < 10**decimals, "TicTacToe: Invalid Fee");
+        require(_walletAddress != address(0), "TicTacToe: Invalid wallet address");
+        fee = _fee;
+        isAbsFee = _isAbsFee;
+        wallet = MultiSigWallet(_walletAddress);
+    }
 
     modifier exists(uint256 _id) {
         require(_id <= totalGames, "TicTacToe: game does not exists");
@@ -66,54 +93,60 @@ contract TicTacToe {
 
     /// @notice Create a new game
     /// @return gameId ID of the new game
-    function newGame() external returns (uint256 gameId) {
+    function newGame(uint256 stake, address tokenAddress) external returns (uint256 gameId) {
         totalGames++;
         uint256 id = totalGames;
 
         Game memory game;
         game.createdAt = block.timestamp;
+        game.stake = stake;
         games[id] = game;
 
-        emit GameCreated(id, msg.sender);
+        emit GameCreated(id, msg.sender, stake, tokenAddress);
         return id;
     }
 
     /// @notice Create a new game with sender as the first player
     /// @return gameId ID of the new game
-    function newMyGame() external returns (uint256 gameId) {
+    function newMyGame(uint256 stake, address tokenAddress) external payable returns (uint256 gameId) {
         totalGames++;
         uint256 id = totalGames;
 
         Game memory game;
-        game.p1 = msg.sender;
+        game.p1 = payable(msg.sender);
         game.createdAt = block.timestamp;
+        game.stake = stake;
 
         games[id] = game;
         playerStats[msg.sender].gameNum++;
 
-        emit GameCreated(id, msg.sender);
+        addStake(games[id]);
+
+        emit GameCreated(id, msg.sender, stake, tokenAddress);
         return id;
     }
 
     /// @notice Join the game
     /// @param _id The id of a necessary game
-    function join(uint256 _id) external exists(_id) {
+    function join(uint256 _id) external payable exists(_id) {
         Game storage game = games[_id];
 
         require(game.phase == Phase.Join, "TicTacToe: game is full");
         require(msg.sender != game.p1, "TicTacToe: you are already in the game");
 
-        address player = msg.sender;
-        playerStats[player].gameNum++;
+        address payable player = payable(msg.sender);
+        playerStats[msg.sender].gameNum++;
 
         if (game.p1 == address(0)) {
             game.p1 = player;
+            addStake(game);
             emit PlayerJoinedGame(_id, player, 1);
         } else {
             game.p2 = player;
-            game.phase = Phase.P1Turn;
-            game.state = State.Active;
 
+            addStake(game);
+
+            game.phase = Phase.P1Turn;
             game.turnAt = block.timestamp + turnTimeout;
 
             emit PlayerJoinedGame(_id, player, 2);
@@ -133,59 +166,20 @@ contract TicTacToe {
 
         Game storage game = games[_id];
 
-        if (game.turnAt < block.timestamp) {
-            if (game.phase == Phase.P1Turn) {
-                game.state = State.P2Wins;
-                playerStats[game.p2].winNum++;
-            } else {
-                game.state = State.P1Wins;
-                playerStats[game.p1].winNum++;
-            }
-            game.phase = Phase.Finished;
-            emit GameOver(_id, game.state);
-            return;
-        }
-
         require(msg.sender == getCurrentPlayer(game), "TicTacToe: there is not your turn");
         require(game.board[_x][_y] == Players.None, "TicTacToe: cell on the board is already taken");
+        require(game.turnAt > block.timestamp, "TicTacToe: the time for turn is over");
 
         game.board[_x][_y] = game.phase == Phase.P1Turn ? Players.P1 : Players.P2;
         game.turnAt = block.timestamp + turnTimeout;
         emit PlayerMove(_id, msg.sender, _x, _y);
-
-        Players winner;
-        bool draw;
-        (winner, draw) = calculateWinner(game.board);
-        if (draw) {
-            game.phase = Phase.Finished;
-            game.state = State.Draw;
-            playerStats[game.p1].drawNum++;
-            playerStats[game.p2].drawNum++;
-            emit GameOver(_id, game.state);
-            return;
-        }
-        if (winner == Players.P1) {
-            game.phase = Phase.Finished;
-            game.state = State.P1Wins;
-            playerStats[game.p1].winNum++;
-            emit GameOver(_id, game.state);
-            return;
-        } else if (winner == Players.P2) {
-            game.phase = Phase.Finished;
-            game.state = State.P2Wins;
-            playerStats[game.p2].winNum++;
-            emit GameOver(_id, game.state);
-            return;
-        }
-
         game.phase = game.phase == Phase.P1Turn ? Phase.P2Turn : Phase.P1Turn;
     }
 
     /// @notice Get a game data
     /// @param _id The id of a necessary game
     /// @return game Game data
-    function gameById(uint256 _id) external view returns (Game memory game) {
-        require(_id <= totalGames, "TicTacToe: game does not exists");
+    function gameById(uint256 _id) external view exists(_id) returns (Game memory game) {
         return games[_id];
     }
 
@@ -205,6 +199,131 @@ contract TicTacToe {
         return (100 * win) / all;
     }
 
+    /// @notice Change fee of the contract
+    /// @param _fee Absolute amount or percentage of a player's stake
+    /// @param _isAbsFee Bool indicating fee is a percentage
+    function changeFee(uint256 _fee, bool _isAbsFee) external onlyOwner {
+        require(!_isAbsFee && _fee < 10**decimals, "TicTacToe: Invalid Fee");
+        fee = _fee;
+        isAbsFee = _isAbsFee;
+        emit FeeChanged(_fee, _isAbsFee);
+    }
+
+    /// @notice Change fee of the contract
+    /// @param _walletAddress Payable address of MultiSigWallet
+    function changeWallet(address payable _walletAddress) external onlyOwner {
+        require(_walletAddress != address(0), "TicTacToe: Invalid wallet address");
+        wallet = MultiSigWallet(_walletAddress);
+        emit WalletChanged(_walletAddress);
+    }
+
+    /// @notice Send a prize(s) from the game
+    /// @param _id The id of a necessary game
+    function sendPrize(uint256 _id) external payable nonReentrant exists(_id) {
+        Game storage game = games[_id];
+
+        require(game.p1 == msg.sender || game.p2 == msg.sender, "TicTacToe: you are not player of the game");
+        require(game.phase == Phase.Finished, "TicTacToe: game is not finished yet");
+
+        uint256 share = game.amount;
+
+        if (game.winner == Players.Both) {
+            share = share.div(2);
+            if (game.tokenAddress == address(0)) {
+                bool sent;
+                (sent, ) = game.p1.call{value: share}("");
+                require(sent, "TicTacToe: Failed to send Ether to Player 1");
+                (sent, ) = game.p2.call{value: share}("");
+                require(sent, "TicTacToe: Failed to send Ether to Player 2");
+            } else {
+                IERC20 token = IERC20(game.tokenAddress);
+                token.transfer(game.p1, share);
+                token.transfer(game.p2, share);
+            }
+        } else if (game.winner == Players.P1) {
+            if (game.tokenAddress == address(0)) {
+                (bool sent, ) = game.p1.call{value: share}("");
+                require(sent, "TicTacToe: Failed to send Ether to Player 1");
+            } else {
+                IERC20(game.tokenAddress).transfer(game.p1, share);
+            }
+        } else if (game.winner == Players.P2) {
+            if (game.tokenAddress == address(0)) {
+                (bool sent, ) = game.p2.call{value: share}("");
+                require(sent, "TicTacToe: Failed to send Ether to Player 2");
+            } else {
+                IERC20(game.tokenAddress).transfer(game.p2, share);
+            }
+        }
+    }
+
+    /// @notice Get winner of the game
+    /// @param _id The id of a necessary game
+    /// @return winner The player (including None) who won
+    function getWinner(uint256 _id) public exists(_id) onlyActiveGame(_id) returns (Players winner) {
+        Game storage game = games[_id];
+
+        if (game.turnAt < block.timestamp) {
+            if (game.phase == Phase.P1Turn) {
+                game.winner = Players.P2;
+                playerStats[game.p2].winNum++;
+                game.phase = Phase.Finished;
+                emit GameOver(_id, game.winner);
+                return Players.P2;
+            }
+            game.winner = Players.P1;
+            playerStats[game.p1].winNum++;
+            game.phase = Phase.Finished;
+            emit GameOver(_id, game.winner);
+            return Players.P1;
+        }
+
+        Players player = calculateWinner(game.board);
+
+        if (player != Players.None) {
+            game.phase = Phase.Finished;
+            game.winner = player;
+            emit GameOver(_id, game.winner);
+        }
+        if (player == Players.Both) {
+            playerStats[game.p1].drawNum++;
+            playerStats[game.p2].drawNum++;
+        } else if (player == Players.P1) {
+            playerStats[game.p1].winNum++;
+        } else if (player == Players.P2) {
+            playerStats[game.p2].winNum++;
+        }
+
+        return player;
+    }
+
+    /// @notice Add a stake to the game
+    /// @param _game Necessary game
+    function addStake(Game storage _game) private {
+        uint256 _fee;
+        if (isAbsFee) {
+            require(_game.stake >= fee, "TicTacToe: Not enough for stake payment");
+            _fee = fee;
+        } else {
+            fee = _game.stake.mul(fee).div(10**decimals);
+        }
+
+        if (_game.tokenAddress == address(0)) {
+            require(msg.value == _game.stake, "TicTacToe: No ETH for stake");
+            // Pay fee
+            (bool sent, ) = address(wallet).call{value: fee}("");
+            require(sent, "TicTacToe: Failed to send Ether to Wallet");
+        } else {
+            IERC20 token = IERC20(_game.tokenAddress);
+            uint256 allowance = token.allowance(msg.sender, address(this));
+            require(allowance >= _game.stake, "TicTacToe: Check the token allowance");
+            token.transferFrom(msg.sender, address(this), _game.stake);
+            // Pay fee
+            token.transfer(address(wallet), fee);
+        }
+        _game.amount = _game.amount.add(_game.stake.sub(fee));
+    }
+
     /// @notice Get a current player in the turn of the game
     /// @param _game Necessary game
     /// @return player The player who has a turn
@@ -221,28 +340,27 @@ contract TicTacToe {
     /// @notice Calculate winner via parsing board
     /// @param _board The board of the game
     /// @return winner The player (including None) who won
-    /// @return draw Bool indicating a draw in the game
-    function calculateWinner(Players[3][3] memory _board) private pure returns (Players winner, bool draw) {
+    function calculateWinner(Players[3][3] memory _board) private pure returns (Players winner) {
         Players player = checkRow(_board);
         if (player != Players.None) {
-            return (player, false);
+            return player;
         }
 
         player = checkColumn(_board);
         if (player != Players.None) {
-            return (player, false);
+            return player;
         }
 
         player = checkDiagonal(_board);
         if (player != Players.None) {
-            return (player, false);
+            return player;
         }
 
         if (isBoardFull(_board)) {
-            return (Players.None, true);
+            return Players.Both;
         }
 
-        return (Players.None, false);
+        return Players.None;
     }
 
     /// @notice Calculate winner in a row via parsing board rows

@@ -60,7 +60,7 @@ contract TicTacToe is Ownable, ReentrancyGuard {
 
     MultiSigWallet wallet;
 
-    event GameCreated(uint256 indexed gameId, address indexed creator, uint256 amount, address token);
+    event GameCreated(uint256 indexed gameId, address indexed creator, uint256 stake, address token);
     event PlayerJoinedGame(uint256 indexed gameId, address player, uint8 playerNum);
     event PlayerMove(uint256 indexed gameId, address player, uint8 x, uint8 y);
     event GameOver(uint256 indexed gameId, Players indexed winner);
@@ -73,7 +73,7 @@ contract TicTacToe is Ownable, ReentrancyGuard {
         bool _isAbsFee,
         address payable _walletAddress
     ) {
-        require(!_isAbsFee && _fee < 10**decimals, "TicTacToe: Invalid Fee");
+        require(!_isAbsFee && _fee <= 10**decimals, "TicTacToe: Invalid Fee");
         require(_walletAddress != address(0), "TicTacToe: Invalid wallet address");
         fee = _fee;
         isAbsFee = _isAbsFee;

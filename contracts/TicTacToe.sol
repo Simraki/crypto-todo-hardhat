@@ -34,6 +34,7 @@ contract TicTacToe is Ownable, ReentrancyGuard {
         Phase phase;
         Players winner;
         Players[3][3] board;
+        uint256 turnNum;
         // If it is zero, use ETH
         address tokenAddress;
         uint256 amount;
@@ -172,7 +173,15 @@ contract TicTacToe is Ownable, ReentrancyGuard {
 
         game.board[_x][_y] = game.phase == Phase.P1Turn ? Players.P1 : Players.P2;
         game.turnAt = block.timestamp + turnTimeout;
+        game.turnNum = game.turnNum + 1;
         emit PlayerMove(_id, msg.sender, _x, _y);
+
+        if (game.turnNum >= 5) {
+            if (getWinner(_id) != Players.None) {
+                return;
+            }
+        }
+
         game.phase = game.phase == Phase.P1Turn ? Phase.P2Turn : Phase.P1Turn;
     }
 

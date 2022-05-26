@@ -124,8 +124,8 @@ contract MultiSigWallet {
     }
 
     /// @notice Get all owners
-    /// @return owners Array of owner's addresses
-    function getOwners() public view returns (address[] memory owners) {
+    /// @return ownerArr Array of owner's addresses
+    function getOwners() public view returns (address[] memory ownerArr) {
         return owners;
     }
 
@@ -137,16 +137,32 @@ contract MultiSigWallet {
 
     /// @notice Get the transaction
     /// @param _txIndex The index of the necessary transaction
-    /// @return transaction Transaction
-    function getTransaction(uint256 _txIndex) public view returns (Transaction memory transaction) {
-        return transactions[_txIndex];
+    /// @return to Recipient's address
+    /// @return value Number of wei
+    /// @return data Complete calldata
+    /// @return executed Bool indicating transaction is executed
+    /// @return numConfirmations Number of confirmations
+    function getTransaction(uint256 _txIndex)
+        public
+        view
+        returns (
+            address to,
+            uint256 value,
+            bytes memory data,
+            bool executed,
+            uint256 numConfirmations
+        )
+    {
+        Transaction storage transaction = transactions[_txIndex];
+
+        return (transaction.to, transaction.value, transaction.data, transaction.executed, transaction.numConfirmations);
     }
 
     /// @notice Check if transaction is confirmed by owner
     /// @param _txIndex The index of the necessary transaction
     /// @param _owner Owner's address
-    /// @return isConfirmed Bool indicating transaction is confirmed by owner
-    function isConfirmed(uint256 _txIndex, address _owner) public view returns (bool isConfirmed) {
+    /// @return confirmed Bool indicating transaction is confirmed by owner
+    function isConfirmed(uint256 _txIndex, address _owner) public view returns (bool confirmed) {
         return transactions[_txIndex].isConfirmed[_owner];
     }
 }

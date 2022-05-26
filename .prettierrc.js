@@ -14,11 +14,11 @@ module.exports = {
     {
       files: "*.ts",
       options: {
-        printWidth: 145,
+        printWidth: 120,
         semi: false,
         tabWidth: 4,
         trailingComma: "es5",
       },
     },
   ],
-}
+};

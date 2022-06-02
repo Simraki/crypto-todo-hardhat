@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
+import "hardhat/console.sol";
+
 import "./MultiSigWallet.sol";
 
 /// @author YeapCool
@@ -37,6 +39,8 @@ contract TicTacToe is Ownable, ReentrancyGuard {
         uint256 turnNum;
         // If it is zero, use ETH
         address tokenAddress;
+        // Use when isAbsFee = true
+        uint256 tokenDecimals;
         uint256 amount;
         uint256 stake;
     }
@@ -60,7 +64,7 @@ contract TicTacToe is Ownable, ReentrancyGuard {
 
     MultiSigWallet wallet;
 
-    event GameCreated(uint256 indexed gameId, address indexed creator, uint256 stake, address token);
+    event GameCreated(uint256 indexed gameId, address indexed creator, uint256 stake, address token, uint256 tokenDecimals);
     event PlayerJoinedGame(uint256 indexed gameId, address player, uint8 playerNum);
     event PlayerMove(uint256 indexed gameId, address player, uint8 x, uint8 y);
     event GameOver(uint256 indexed gameId, Players indexed winner);
@@ -73,7 +77,7 @@ contract TicTacToe is Ownable, ReentrancyGuard {
         bool _isAbsFee,
         address payable _walletAddress
     ) {
-        require(!_isAbsFee && _fee <= 10**decimals, "TicTacToe: Invalid Fee");
+        require(_isAbsFee || (!_isAbsFee && _fee <= 10**decimals), "TicTacToe: Invalid Fee");
         require(_walletAddress != address(0), "TicTacToe: Invalid wallet address");
         fee = _fee;
         isAbsFee = _isAbsFee;
@@ -94,28 +98,40 @@ contract TicTacToe is Ownable, ReentrancyGuard {
 
     /// @notice Create a new game
     /// @return gameId ID of the new game
-    function newGame(uint256 stake, address tokenAddress) external returns (uint256 gameId) {
+    function newGame(
+        uint256 stake,
+        address tokenAddress,
+        uint256 tokenDecimals
+    ) external returns (uint256 gameId) {
         totalGames++;
         uint256 id = totalGames;
 
         Game memory game;
         game.createdAt = block.timestamp;
         game.stake = stake;
+        game.tokenAddress = tokenAddress;
+        game.tokenDecimals = tokenAddress == address(0) ? 18 : tokenDecimals;
         games[id] = game;
 
-        emit GameCreated(id, msg.sender, stake, tokenAddress);
+        emit GameCreated(id, msg.sender, stake, tokenAddress, tokenDecimals);
         return id;
     }
 
     /// @notice Create a new game with sender as the first player
     /// @return gameId ID of the new game
-    function newMyGame(uint256 stake, address tokenAddress) external payable returns (uint256 gameId) {
+    function newMyGame(
+        uint256 stake,
+        address tokenAddress,
+        uint256 tokenDecimals
+    ) external payable returns (uint256 gameId) {
         totalGames++;
         uint256 id = totalGames;
 
         Game memory game;
         game.p1 = payable(msg.sender);
         game.createdAt = block.timestamp;
+        game.tokenAddress = tokenAddress;
+        game.tokenDecimals = tokenAddress == address(0) ? 18 : tokenDecimals;
         game.stake = stake;
 
         games[id] = game;
@@ -123,7 +139,7 @@ contract TicTacToe is Ownable, ReentrancyGuard {
 
         addStake(games[id]);
 
-        emit GameCreated(id, msg.sender, stake, tokenAddress);
+        emit GameCreated(id, msg.sender, stake, tokenAddress, tokenDecimals);
         return id;
     }
 
@@ -312,16 +328,20 @@ contract TicTacToe is Ownable, ReentrancyGuard {
     function addStake(Game storage _game) private {
         uint256 _fee;
         if (isAbsFee) {
-            require(_game.stake >= fee, "TicTacToe: Not enough for stake payment");
-            _fee = fee;
+            if (_game.tokenDecimals > decimals) {
+                _fee = fee.mul(10**(_game.tokenDecimals - decimals));
+            } else {
+                _fee = fee.div(10**(decimals - _game.tokenDecimals));
+            }
+            require(_game.stake >= _fee, "TicTacToe: Not enough for stake payment");
         } else {
-            fee = _game.stake.mul(fee).div(10**decimals);
+            _fee = _game.stake.mul(fee).div(10**decimals);
         }
 
         if (_game.tokenAddress == address(0)) {
-            require(msg.value == _game.stake, "TicTacToe: No ETH for stake");
+            require(msg.value == _game.stake, "TicTacToe: Invalid ETH for stake");
             // Pay fee
-            (bool sent, ) = address(wallet).call{value: fee}("");
+            (bool sent, ) = address(wallet).call{value: _fee}("");
             require(sent, "TicTacToe: Failed to send Ether to Wallet");
         } else {
             IERC20 token = IERC20(_game.tokenAddress);
@@ -329,9 +349,9 @@ contract TicTacToe is Ownable, ReentrancyGuard {
             require(allowance >= _game.stake, "TicTacToe: Check the token allowance");
             token.transferFrom(msg.sender, address(this), _game.stake);
             // Pay fee
-            token.transfer(address(wallet), fee);
+            token.transfer(address(wallet), _fee);
         }
-        _game.amount = _game.amount.add(_game.stake.sub(fee));
+        _game.amount = _game.amount.add(_game.stake.sub(_fee));
     }
 
     /// @notice Get a current player in the turn of the game

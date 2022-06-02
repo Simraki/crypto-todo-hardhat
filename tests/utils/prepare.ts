@@ -1,5 +1,6 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { ethers } from "hardhat"
+import { BigNumber } from "ethers"
 
 export async function prepareSigners(thisObject: Mocha.Context) {
     thisObject.signers = await ethers.getSigners()
@@ -35,10 +36,22 @@ export async function prepareCryptoTodo(thisObject: Mocha.Context, signer: Signe
     thisObject.CryptoTodo = CryptoTodo
 }
 
-export async function prepareTicTacToe(thisObject: Mocha.Context, signer: SignerWithAddress) {
+export async function prepareTicTacToeAndMultiSigWallet(
+    thisObject: Mocha.Context,
+    signer: SignerWithAddress,
+    fee: BigNumber,
+    isAbsFee: boolean
+) {
     const tokenFactory = await ethers.getContractFactory("TicTacToe")
+    const walletFactory = await ethers.getContractFactory("MultiSigWallet")
 
-    const TicTacToe = await tokenFactory.connect(signer).deploy()
+    const MultiSigWallet = await walletFactory
+        .connect(signer)
+        .deploy([thisObject.signers[0].address, thisObject.signers[1].address], 1)
+    await MultiSigWallet.deployed()
+
+    const TicTacToe = await tokenFactory.connect(signer).deploy(fee, isAbsFee, MultiSigWallet.address)
     await TicTacToe.deployed()
+    thisObject.MSG = MultiSigWallet
     thisObject.TTT = TicTacToe
 }

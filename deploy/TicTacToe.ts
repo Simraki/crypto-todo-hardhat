@@ -1,4 +1,5 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
+import { ethers } from "ethers"
 
 module.exports = async function (hre: HardhatRuntimeEnvironment, walletAddress: string) {
     console.log(`ChainId: ${await hre.getChainId()}`)
@@ -8,8 +9,10 @@ module.exports = async function (hre: HardhatRuntimeEnvironment, walletAddress: 
 
     const { deployer } = await getNamedAccounts()
 
+    const dec16 = ethers.utils.parseUnits("1", 16) // 1% fee
+
     await deploy("TicTacToe", {
-        args: ["1" + "0".repeat(18), true, walletAddress],
+        args: [dec16, false, walletAddress],
         from: deployer,
         log: true,
     })

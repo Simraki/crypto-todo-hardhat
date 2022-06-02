@@ -48,6 +48,8 @@ const config: HardhatUserConfig = {
             accounts: {
                 mnemonic: process.env.MNEMONIC,
             },
+            initialBaseFeePerGas: 0,
+            gasPrice: 0,
         },
         localhost: {
             url: "http://127.0.0.1:8545",

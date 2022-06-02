@@ -11,10 +11,22 @@ module.exports = async function (hre: HardhatRuntimeEnvironment, walletAddress: 
 
     const dec16 = ethers.utils.parseUnits("1", 16) // 1% fee
 
-    await deploy("TicTacToe", {
-        args: [dec16, false, walletAddress],
+    const wallet = await deploy("MultiSigWallet", {
+        args: [[deployer], 1],
         from: deployer,
         log: true,
+    })
+
+    await deploy("TicTacToe", {
+        from: deployer,
+        log: true,
+        proxy: {
+            proxyContract: "OpenZeppelinTransparentProxy",
+            execute: {
+                methodName: "initialize",
+                args: [dec16, false, wallet.address],
+            },
+        },
     })
 }
 

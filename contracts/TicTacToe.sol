@@ -237,17 +237,18 @@ contract TicTacToe is Ownable, ReentrancyGuard {
         uint256 share = game.amount;
 
         if (game.winner == Players.Both) {
-            share = share.div(2);
+            uint256 share1 = share.div(2);
+            uint256 share2 = share.sub(share1);
             if (game.tokenAddress == address(0)) {
                 bool sent;
-                (sent, ) = game.p1.call{value: share}("");
+                (sent, ) = game.p1.call{value: share1}("");
                 require(sent, "TicTacToe: Failed to send Ether to Player 1");
-                (sent, ) = game.p2.call{value: share}("");
+                (sent, ) = game.p2.call{value: share2}("");
                 require(sent, "TicTacToe: Failed to send Ether to Player 2");
             } else {
                 IERC20 token = IERC20(game.tokenAddress);
-                token.transfer(game.p1, share);
-                token.transfer(game.p2, share);
+                token.transfer(game.p1, share1);
+                token.transfer(game.p2, share2);
             }
         } else if (game.winner == Players.P1) {
             if (game.tokenAddress == address(0)) {

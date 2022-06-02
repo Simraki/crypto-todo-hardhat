@@ -15,7 +15,7 @@ import "./MultiSigWallet.sol";
 
 /// @author YeapCool
 /// @title A Solidity implementation of Tic-Tac-Toe game (Xs and Os) with stakes AND upgrade ability
-contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+contract TicTacToeV2 is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
     using SafeMathUpgradeable for uint256;
 
     enum Players {
@@ -93,6 +93,9 @@ contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradea
         isAbsFee = _isAbsFee;
         wallet = MultiSigWallet(_walletAddress);
 
+        decimals = 18;
+        turnTimeout = 1 days;
+
         /// @dev as there is no constructor, we need to initialise another contracts explicitly
         __Ownable_init();
         __ReentrancyGuard_init();
@@ -100,6 +103,14 @@ contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradea
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    function getDecimals() external view returns (uint256 dec) {
+        return decimals;
+    }
+
+    function getOwnerAddress() external view returns (address walletAddress) {
+        return address(wallet);
+    }
 
     modifier exists(uint256 _id) {
         require(_id <= totalGames, "TicTacToe: game does not exists");

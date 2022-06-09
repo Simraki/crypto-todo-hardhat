@@ -3,6 +3,7 @@ import { ethers, waffle } from "hardhat"
 import { revert, snapshot } from "./utils/network"
 import { prepareERC20Tokens, prepareMultiSigWallet, prepareSigners, prepareTicTacToe } from "./utils/prepare"
 import { duration, increase } from "./utils/time"
+import { TypedDataDomain } from "@ethersproject/abstract-signer"
 
 use(waffle.solidity)
 
@@ -885,6 +886,59 @@ describe("TicTacToe contract", function () {
             const winRate = await this.TTT.winRateBy(this.misha.address)
 
             expect(winRate).to.equal(100)
+        })
+    })
+
+    describe.only("admin methods", function () {
+        const fee = ethers.utils.parseUnits("1", 16) // 1% fee
+
+        let domain: TypedDataDomain
+
+        beforeEach(async function () {
+            await prepareTicTacToe(this, this.owner, fee, false, this.MSW.address)
+            const { chainId } = await ethers.provider.getNetwork()
+            domain = {
+                name: "TicTacToe",
+                version: "1",
+                chainId: chainId,
+                verifyingContract: this.TTT.address,
+            }
+        })
+
+        it("should change wallet address", async function () {
+            const walletFactory = await ethers.getContractFactory("MultiSigWallet")
+
+            const MultiSigWallet = await walletFactory.deploy([this.misha.address, this.bob.address], 1)
+            await MultiSigWallet.deployed()
+
+            await expect(this.TTT.changeWallet(MultiSigWallet.address))
+                .to.emit(this.TTT, "WalletChanged")
+                .withArgs(MultiSigWallet.address)
+        })
+
+        it("should change fee amount and type with signature", async function () {
+            const newFee = ethers.utils.parseUnits("2", 16) // 2% fee
+            const newIsAbsFee = true
+
+            const types = {
+                changeFee: [
+                    { name: "_fee", type: "uint256" },
+                    { name: "_isAbsFee", type: "bool" },
+                ],
+            }
+            const value = { _fee: newFee.toString(), _isAbsFee: newIsAbsFee }
+
+            const validSignature = await this.owner._signTypedData(domain, types, value)
+
+            await expect(this.TTT.connect(this.misha).changeFee(newFee, newIsAbsFee, validSignature))
+                .to.emit(this.TTT, "FeeChanged")
+                .withArgs(newFee, newIsAbsFee)
+
+            const invalidSignature = await this.misha._signTypedData(domain, types, value)
+
+            await expect(
+                this.TTT.connect(this.owner).changeFee(newFee, newIsAbsFee, invalidSignature)
+            ).to.be.revertedWith("TicTacToe: invalid signer (non-owner)")
         })
     })
 })

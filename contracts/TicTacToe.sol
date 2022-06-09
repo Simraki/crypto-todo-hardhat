@@ -7,7 +7,10 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/draft-EIP712Upgradeable.sol";
 
 import "hardhat/console.sol";
 
@@ -15,8 +18,12 @@ import "./MultiSigWallet.sol";
 
 /// @author YeapCool
 /// @title A Solidity implementation of Tic-Tac-Toe game (Xs and Os) with stakes AND upgrade ability
-contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable, EIP712Upgradeable {
     using SafeMathUpgradeable for uint256;
+    using ECDSAUpgradeable for bytes32;
+
+    string private constant SIGNATURE_DOMAIN = "TicTacToe";
+    string private constant SIGNATURE_VERSION = "1";
 
     enum Players {
         None,
@@ -97,6 +104,7 @@ contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradea
         __Ownable_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
+        __EIP712_init(SIGNATURE_DOMAIN, SIGNATURE_VERSION);
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
@@ -244,8 +252,14 @@ contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradea
     /// @notice Change fee of the contract
     /// @param _fee Absolute amount or percentage of a player's stake
     /// @param _isAbsFee Bool indicating fee is a percentage
-    function changeFee(uint256 _fee, bool _isAbsFee) external onlyOwner {
-        require(!_isAbsFee && _fee < 10**decimals, "TicTacToe: Invalid Fee");
+    function changeFee(
+        uint256 _fee,
+        bool _isAbsFee,
+        bytes memory _signature
+    ) external {
+        require(_isAbsFee || (!_isAbsFee && _fee <= 10**decimals), "TicTacToe: Invalid Fee");
+        bytes32 msgHash = EIP712Upgradeable._hashTypedDataV4(keccak256(abi.encode(keccak256("changeFee(uint256 _fee,bool _isAbsFee)"), _fee, _isAbsFee)));
+        require(recoverAddress(msgHash, _signature) == owner(), "TicTacToe: invalid signer (non-owner)");
         fee = _fee;
         isAbsFee = _isAbsFee;
         emit FeeChanged(_fee, _isAbsFee);
@@ -464,5 +478,13 @@ contract TicTacToe is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradea
         }
 
         return true;
+    }
+
+    /// @notice Recover signer address
+    /// @param _msgHash Hashed message
+    /// @param _signature Signature
+    /// @return recovered Signer address
+    function recoverAddress(bytes32 _msgHash, bytes memory _signature) internal pure returns (address recovered) {
+        return ECDSAUpgradeable.recover(_msgHash, _signature);
     }
 }
